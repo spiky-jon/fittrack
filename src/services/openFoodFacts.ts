@@ -6,12 +6,10 @@
 
 import type { OFFProduct, FoodLog, MealType } from '@/types'
 
-const OFF_BASE = 'https://world.openfoodfacts.org'
+const OFF_HEADERS = {
+  'User-Agent': 'FitTrack/1.0 (https://fittrack-eight-liart.vercel.app)',
+}
 
-// Search by text query.
-// Requests go to /off-api/* which Vite proxies to search.openfoodfacts.org —
-// this sidesteps the CORS restriction (search.o.o doesn't send Allow-Origin headers).
-// Normalises the response into { products: [...] } so callers stay unchanged.
 export async function searchFoods(query: string, page = 1) {
   const params = new URLSearchParams({
     q: query,
@@ -22,7 +20,9 @@ export async function searchFoods(query: string, page = 1) {
     cc: 'gb',
   })
 
-  const res = await fetch(`/off-api/search?${params}`)
+  const res = await fetch(`https://search.openfoodfacts.org/cgi/search.pl?${params}`, {
+    headers: OFF_HEADERS,
+  })
   if (!res.ok) throw new Error(`OFF search error: ${res.status}`)
   const data = await res.json()
 
@@ -39,14 +39,12 @@ export async function searchFoods(query: string, page = 1) {
   return { products, count: data.count ?? hits.length }
 }
 
-// Fetch serving_size + serving_quantity for a product code — used by the modal
-// after a search result is selected, to enable servings-mode quantity input.
-// Proxied through /off-product to avoid the CORS restriction on world.o.o.
 export async function getProductServingData(
   code: string,
 ): Promise<{ serving_size?: string; serving_quantity?: number }> {
   const res = await fetch(
-    `/off-product/api/v2/product/${code}?fields=serving_size,serving_quantity`,
+    `https://world.openfoodfacts.org/api/v2/product/${code}?fields=serving_size,serving_quantity`,
+    { headers: OFF_HEADERS },
   )
   if (!res.ok) return {}
   const data = await res.json()
@@ -60,7 +58,10 @@ export async function getProductServingData(
 
 // Lookup by barcode
 export async function getFoodByBarcode(barcode: string): Promise<OFFProduct> {
-  const res = await fetch(`${OFF_BASE}/api/v2/product/${barcode}?fields=code,product_name,brands,serving_size,nutriments,image_front_small_url`)
+  const res = await fetch(
+    `https://world.openfoodfacts.org/api/v2/product/${barcode}?fields=code,product_name,brands,serving_size,nutriments,image_front_small_url`,
+    { headers: OFF_HEADERS },
+  )
   if (!res.ok) throw new Error('Product not found')
   const data = await res.json()
   if (data.status === 0) throw new Error('Product not found in Open Food Facts')
