@@ -6,24 +6,9 @@
 
 import type { OFFProduct, FoodLog, MealType } from '@/types'
 
-const OFF_HEADERS = {
-  'User-Agent': 'FitTrack/1.0 (https://fittrack-eight-liart.vercel.app)',
-}
-
 export async function searchFoods(query: string, page = 1) {
-  const params = new URLSearchParams({
-    search_terms: query,
-    json: '1',
-    page: String(page),
-    page_size: '20',
-    fields: 'code,product_name,brands,serving_size,serving_quantity,nutriments,image_front_small_url',
-    lc: 'en',
-    cc: 'gb',
-  })
-
-  const res = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?${params}`, {
-    headers: OFF_HEADERS,
-  })
+  const params = new URLSearchParams({ q: query, page: String(page) })
+  const res = await fetch(`/api/food-search?${params}`)
   if (!res.ok) throw new Error(`OFF search error: ${res.status}`)
   const data = await res.json()
   const products = data.products ?? []
@@ -35,7 +20,7 @@ export async function getProductServingData(
 ): Promise<{ serving_size?: string; serving_quantity?: number }> {
   const res = await fetch(
     `https://world.openfoodfacts.org/api/v2/product/${code}?fields=serving_size,serving_quantity`,
-    { headers: OFF_HEADERS },
+    { headers: { 'User-Agent': 'FitTrack/1.0 (https://fittrack-eight-liart.vercel.app)' } },
   )
   if (!res.ok) return {}
   const data = await res.json()
@@ -49,10 +34,7 @@ export async function getProductServingData(
 
 // Lookup by barcode
 export async function getFoodByBarcode(barcode: string): Promise<OFFProduct> {
-  const res = await fetch(
-    `https://world.openfoodfacts.org/api/v2/product/${barcode}?fields=code,product_name,brands,serving_size,nutriments,image_front_small_url`,
-    { headers: OFF_HEADERS },
-  )
+  const res = await fetch(`/api/food-barcode?barcode=${barcode}`)
   if (!res.ok) throw new Error('Product not found')
   const data = await res.json()
   if (data.status === 0) throw new Error('Product not found in Open Food Facts')
