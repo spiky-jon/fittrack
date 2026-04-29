@@ -12,7 +12,8 @@ const OFF_HEADERS = {
 
 export async function searchFoods(query: string, page = 1) {
   const params = new URLSearchParams({
-    q: query,
+    search_terms: query,
+    json: '1',
     page: String(page),
     page_size: '20',
     fields: 'code,product_name,brands,serving_size,serving_quantity,nutriments,image_front_small_url',
@@ -20,23 +21,13 @@ export async function searchFoods(query: string, page = 1) {
     cc: 'gb',
   })
 
-  const res = await fetch(`https://search.openfoodfacts.org/cgi/search.pl?${params}`, {
+  const res = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?${params}`, {
     headers: OFF_HEADERS,
   })
   if (!res.ok) throw new Error(`OFF search error: ${res.status}`)
   const data = await res.json()
-
-  // New API returns { hits: [] }; normalise to { products: [] } expected by callers.
-  // Also flatten brands array → string so offProductToFoodLog doesn't need changing.
-  const hits: Record<string, unknown>[] = data.hits ?? data.products ?? []
-  const products = hits.map(h => ({
-    ...h,
-    brands: Array.isArray(h.brands)
-      ? (h.brands as string[]).join(', ')
-      : (h.brands as string | undefined),
-  }))
-
-  return { products, count: data.count ?? hits.length }
+  const products = data.products ?? []
+  return { products, count: data.count ?? products.length }
 }
 
 export async function getProductServingData(
