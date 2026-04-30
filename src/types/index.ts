@@ -132,6 +132,35 @@ export interface OFFSearchResult {
 }
 
 // ============================================
+// Saved Meals
+// ============================================
+
+export interface SavedMealItem {
+  id: string
+  saved_meal_id: string
+  food_name: string
+  brand: string | null
+  barcode: string | null
+  calories: number
+  protein_g: number
+  carbs_g: number
+  fat_g: number
+  fibre_g: number
+  sugar_g: number
+  salt_g: number
+  serving_size_g: number | null
+  quantity: number
+}
+
+export interface SavedMeal {
+  id: string
+  user_id: string
+  name: string
+  created_at: string
+  items: SavedMealItem[]
+}
+
+// ============================================
 // App UI types
 // ============================================
 

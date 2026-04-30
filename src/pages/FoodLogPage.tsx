@@ -1,12 +1,14 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { format, addDays, subDays, parseISO } from 'date-fns'
-import { ChevronLeft, ChevronRight, Plus, Trash2, Loader2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Trash2, Loader2, Bookmark, X } from 'lucide-react'
 import { useLocation } from 'react-router-dom'
 import { useFoodLog } from '@/hooks/useFoodLog'
 import { useAuthStore } from '@/store/authStore'
+import { getFoodLogsForDate } from '@/services/foodLogs'
+import { saveMeal } from '@/services/savedMeals'
 import DailySummaryCard from '@/components/food/DailySummaryCard'
 import FoodSearchModal from '@/components/food/FoodSearchModal'
-import type { MealType } from '@/types'
+import type { FoodLog, MealType } from '@/types'
 
 const MEAL_LABELS: Record<MealType, string> = {
   breakfast: 'Breakfast',
@@ -30,6 +32,60 @@ export default function FoodLogPage() {
   )
   const [modalMeal, setModalMeal] = useState<MealType | null>(null)
 
+  // ── Yesterday's meals (single fetch, grouped client-side) ──
+  const yesterdayStr = toDateString(subDays(currentDate, 1))
+  const [yesterdayMeals, setYesterdayMeals] = useState<Record<MealType, FoodLog[]> | null>(null)
+  const [copyingMeal, setCopyingMeal] = useState<MealType | null>(null)
+
+  useEffect(() => {
+    const userId = user?.id
+    if (!userId) return
+    setYesterdayMeals(null)
+    getFoodLogsForDate(userId, yesterdayStr).then(logs => {
+      const grouped: Record<MealType, FoodLog[]> = { breakfast: [], lunch: [], dinner: [], snacks: [] }
+      for (const log of logs) grouped[log.meal_type].push(log)
+      setYesterdayMeals(grouped)
+    }).catch(() => {
+      setYesterdayMeals({ breakfast: [], lunch: [], dinner: [], snacks: [] })
+    })
+  }, [user?.id, yesterdayStr])
+
+  async function handleCopyYesterday(meal: MealType) {
+    if (!user || !yesterdayMeals) return
+    const prevItems = yesterdayMeals[meal]
+    if (!prevItems.length) return
+    setCopyingMeal(meal)
+    try {
+      for (const item of prevItems) {
+        await addEntry({
+          user_id: user.id,
+          date: dateStr,
+          meal_type: meal,
+          food_name: item.food_name,
+          brand: item.brand,
+          barcode: item.barcode,
+          calories: item.calories,
+          protein_g: item.protein_g,
+          carbs_g: item.carbs_g,
+          fat_g: item.fat_g,
+          fibre_g: item.fibre_g,
+          sugar_g: item.sugar_g,
+          salt_g: item.salt_g,
+          serving_size_g: item.serving_size_g,
+          quantity: item.quantity,
+        })
+      }
+    } finally {
+      setCopyingMeal(null)
+    }
+  }
+
+  // ── Save meal state ──
+  const [savingMeal, setSavingMeal] = useState<MealType | null>(null)
+  const [saveMealName, setSaveMealName] = useState('')
+  const [saveMealStatus, setSaveMealStatus] = useState<Partial<Record<MealType, 'saving' | 'saved'>>>({})
+  const [saveMealError, setSaveMealError] = useState<string | null>(null)
+
   const dateStr = toDateString(currentDate)
   const { dailyLog, loading, error, addEntry, removeEntry } = useFoodLog(
     user?.id ?? '',
@@ -42,6 +98,28 @@ export default function FoodLogPage() {
   const isToday = dateStr === todayStr
   const isTomorrow = dateStr === toDateString(addDays(new Date(), 1))
   const dateLabel = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : format(currentDate, 'EEE, d MMM')
+
+  function openSaveMeal(meal: MealType) {
+    setSaveMealName(`${MEAL_LABELS[meal]} ${format(currentDate, 'd MMM')}`)
+    setSaveMealError(null)
+    setSavingMeal(meal)
+  }
+
+  async function handleSaveMeal(meal: MealType) {
+    if (!user || !saveMealName.trim()) return
+    const items = dailyLog?.meals[meal] ?? []
+    setSaveMealError(null)
+    setSaveMealStatus(s => ({ ...s, [meal]: 'saving' }))
+    try {
+      await saveMeal(user.id, saveMealName.trim(), items)
+      setSavingMeal(null)
+      setSaveMealStatus(s => ({ ...s, [meal]: 'saved' }))
+      setTimeout(() => setSaveMealStatus(s => { const n = { ...s }; delete n[meal]; return n }), 2000)
+    } catch (err) {
+      setSaveMealError(err instanceof Error ? err.message : 'Failed to save — please try again')
+      setSaveMealStatus(s => { const n = { ...s }; delete n[meal]; return n })
+    }
+  }
 
   return (
     <div className="pb-6">
@@ -109,18 +187,79 @@ export default function FoodLogPage() {
                       <span className="text-xs text-zinc-500">{mealCals} kcal</span>
                     )}
                   </div>
-                  <button
-                    onClick={() => setModalMeal(meal)}
-                    className="flex items-center gap-1 text-sm font-medium text-brand hover:text-green-400 transition-colors"
-                  >
-                    <Plus size={15} />
-                    Add
-                  </button>
+                  <div className="flex items-center gap-3">
+                    {saveMealStatus[meal] === 'saved' && (
+                      <span className="text-xs text-green-400">Meal saved!</span>
+                    )}
+                    {items.length > 0 && saveMealStatus[meal] !== 'saved' && savingMeal !== meal && (
+                      <button
+                        onClick={() => openSaveMeal(meal)}
+                        className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+                      >
+                        <Bookmark size={12} />
+                        Save
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setModalMeal(meal)}
+                      className="flex items-center gap-1 text-sm font-medium text-brand hover:text-green-400 transition-colors"
+                    >
+                      <Plus size={15} />
+                      Add
+                    </button>
+                  </div>
                 </div>
+
+                {/* Inline save meal prompt */}
+                {savingMeal === meal && (
+                  <div className="bg-zinc-800/50 border-b border-zinc-800">
+                    <div className="flex items-center gap-2 px-4 py-2.5">
+                      <input
+                        type="text"
+                        value={saveMealName}
+                        onChange={e => setSaveMealName(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && handleSaveMeal(meal)}
+                        autoFocus
+                        placeholder="Meal name"
+                        className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-zinc-100 text-sm focus:outline-none focus:border-brand transition-colors"
+                      />
+                      <button
+                        onClick={() => handleSaveMeal(meal)}
+                        disabled={saveMealStatus[meal] === 'saving' || !saveMealName.trim()}
+                        className="text-sm font-medium text-brand hover:text-green-400 disabled:opacity-40 transition-colors shrink-0"
+                      >
+                        {saveMealStatus[meal] === 'saving' ? 'Saving…' : 'Save'}
+                      </button>
+                      <button
+                        onClick={() => setSavingMeal(null)}
+                        className="text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
+                        aria-label="Cancel"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                    {saveMealError && (
+                      <p className="px-4 pb-2.5 text-xs text-red-400">{saveMealError}</p>
+                    )}
+                  </div>
+                )}
 
                 {/* Food items */}
                 {items.length === 0 ? (
-                  <p className="px-4 py-3 text-sm text-zinc-600 italic">Nothing logged</p>
+                  <div className="px-4 py-3">
+                    <p className="text-sm text-zinc-600 italic">Nothing logged</p>
+                    {(yesterdayMeals?.[meal].length ?? 0) > 0 && (
+                      <button
+                        onClick={() => handleCopyYesterday(meal)}
+                        disabled={copyingMeal !== null}
+                        className="mt-1.5 text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-50 transition-colors"
+                      >
+                        {copyingMeal === meal
+                          ? 'Adding…'
+                          : `＋ Add yesterday's ${MEAL_LABELS[meal]} · ${yesterdayMeals![meal].reduce((s, i) => s + i.calories, 0)} kcal`}
+                      </button>
+                    )}
+                  </div>
                 ) : (
                   <ul className="divide-y divide-zinc-800/40">
                     {items.map(item => (
