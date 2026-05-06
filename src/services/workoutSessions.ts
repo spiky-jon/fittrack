@@ -41,6 +41,11 @@ export async function getSession(id: string): Promise<WorkoutSession | null> {
   return data as WorkoutSession
 }
 
+export async function deleteSession(id: string): Promise<void> {
+  const { error } = await supabase.from('workout_sessions').delete().eq('id', id)
+  if (error) throw error
+}
+
 export async function completeSession(id: string, endedAt: string): Promise<void> {
   const { error } = await supabase
     .from('workout_sessions')
@@ -65,6 +70,18 @@ export async function getSessionsForDate(
     .eq('date', date)
     .order('started_at', { ascending: false })
 
+  if (error) throw error
+  return (data ?? []) as WorkoutSession[]
+}
+
+/** Fetch any sessions that haven't been finished yet (no ended_at). */
+export async function getIncompleteSessions(userId: string): Promise<WorkoutSession[]> {
+  const { data, error } = await supabase
+    .from('workout_sessions')
+    .select('*')
+    .eq('user_id', userId)
+    .is('ended_at', null)
+    .order('started_at', { ascending: false })
   if (error) throw error
   return (data ?? []) as WorkoutSession[]
 }

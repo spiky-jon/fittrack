@@ -3,8 +3,8 @@ import {
   Plus, Trash2, ChevronLeft, Loader2, X,
   ChevronUp, ChevronDown, Dumbbell, Play, Check, Zap,
 } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
+import { useActiveWorkoutStore } from '@/store/activeWorkoutStore'
 import { type Exercise } from '@/services/exerciseDb'
 import {
   getTemplates, getTemplate, createTemplate, deleteTemplate,
@@ -37,7 +37,7 @@ function TemplateDetail({
   userId: string
   onBack: () => void
   onDeleted: () => void
-  onStarted: (sessionId: string) => void
+  onStarted: (sessionId: string, startedAt: string) => void
 }) {
   const [template, setTemplate] = useState(initial)
   const [showExercisePicker, setShowExercisePicker] = useState(false)
@@ -141,7 +141,7 @@ function TemplateDetail({
           ),
         ),
       )
-      onStarted(session.id)
+      onStarted(session.id, session.started_at ?? new Date().toISOString())
     } catch {
       setStarting(false)
     }
@@ -503,7 +503,7 @@ function TemplatesTab({
   userId: string
   onOpenTemplate: (t: TemplateWithExercises) => void
 }) {
-  const navigate = useNavigate()
+  const { openWorkout } = useActiveWorkoutStore()
   const [templates, setTemplates] = useState<WorkoutTemplate[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -521,7 +521,7 @@ function TemplatesTab({
     try {
       const today = new Date().toISOString().split('T')[0]
       const session = await createSession(userId, today, null, 'Quick Workout')
-      navigate(`/workout/active/${session.id}`)
+      openWorkout(session.id, session.name ?? 'Quick Workout', session.started_at ?? new Date().toISOString())
     } catch (e) {
       console.error('Failed to start quick workout:', e)
       setQuickError('Could not start workout — please try again')
@@ -706,7 +706,7 @@ type Tab = 'templates' | 'exercises'
 
 export default function WorkoutsPage() {
   const { user } = useAuthStore()
-  const navigate = useNavigate()
+  const { openWorkout } = useActiveWorkoutStore()
   const [tab, setTab] = useState<Tab>('templates')
   const [openTemplate, setOpenTemplate] = useState<TemplateWithExercises | null>(null)
 
@@ -721,7 +721,9 @@ export default function WorkoutsPage() {
           userId={user.id}
           onBack={() => setOpenTemplate(null)}
           onDeleted={() => setOpenTemplate(null)}
-          onStarted={sessionId => navigate(`/workout/active/${sessionId}`)}
+          onStarted={(sessionId, startedAt) => {
+            openWorkout(sessionId, openTemplate.name, startedAt)
+          }}
         />
       </div>
     )
