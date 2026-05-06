@@ -159,6 +159,8 @@ function TemplateDetail({
         <ExerciseBrowser
           actionLabel={`Add to ${template.name}`}
           onSelect={handleAddExercise}
+          userId={userId}
+          showFavouritesTab
         />
         {addingId && (
           <div className="absolute inset-0 bg-zinc-950/60 flex items-center justify-center">
@@ -683,6 +685,7 @@ function ExercisesTab({ userId }: { userId: string }) {
       <ExerciseBrowser
         actionLabel="Add to template…"
         onSelect={ex => setAddSheet(ex)}
+        userId={userId}
       />
       {addSheet && (
         <AddToTemplateSheet

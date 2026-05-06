@@ -391,7 +391,7 @@ function SummaryScreen({
 export default function ActiveWorkoutPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
   const navigate = useNavigate()
-  const { profile } = useAuthStore()
+  const { user, profile } = useAuthStore()
   const unitWeight: UnitWeight = profile?.unit_weight ?? 'kg'
 
   const {
@@ -532,6 +532,8 @@ export default function ActiveWorkoutPage() {
               setShowExerciseBrowser(false)
               await addExercise(ex)
             }}
+            userId={user?.id}
+            showFavouritesTab
           />
         </div>
       )}
