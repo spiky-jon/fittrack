@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Settings, LogOut, Save } from 'lucide-react'
+import { Settings, LogOut } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { supabase } from '@/lib/supabase'
 import { formatWeight, formatHeight, cmToFtIn, ftInToCm, kgToLbs, lbsToKg } from '@/lib/units'
@@ -158,12 +158,14 @@ export default function ProfilePage() {
 
         <div className="space-y-1">
           <label className="text-sm text-zinc-400">Date of birth</label>
-          <input
-            type="date"
-            value={dob}
-            onChange={e => setDob(e.target.value)}
-            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2.5 text-zinc-100 focus:outline-none focus:border-brand transition-colors text-sm"
-          />
+          <div className="overflow-hidden rounded-lg">
+            <input
+              type="date"
+              value={dob}
+              onChange={e => setDob(e.target.value)}
+              className="w-full min-w-0 appearance-none bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2.5 text-zinc-100 focus:outline-none focus:border-brand transition-colors text-sm"
+            />
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -233,9 +235,8 @@ export default function ProfilePage() {
         <button
           type="submit"
           disabled={saving}
-          className="w-full flex items-center justify-center gap-2 bg-brand hover:bg-brand-dark disabled:opacity-50 text-zinc-900 font-semibold rounded-lg py-2.5 transition-colors"
+          className="w-full bg-brand hover:bg-brand-dark disabled:opacity-50 text-zinc-900 font-semibold rounded-lg py-2.5 transition-colors"
         >
-          <Save size={16} />
           {saving ? 'Saving…' : saved ? 'Saved!' : 'Save changes'}
         </button>
       </form>
