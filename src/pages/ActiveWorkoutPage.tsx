@@ -247,9 +247,9 @@ function SetRow({
         {isWarmup ? 'W' : displayNum}
       </button>
 
-      {/* Weight column — equal flex */}
+      {/* Weight column — equal flex, min-w-0 so it can shrink */}
       {set.completed ? (
-        <p className="flex-1 text-center text-sm text-zinc-400">
+        <p className="flex-1 min-w-0 text-center text-sm text-zinc-400 truncate">
           {displayWeight != null ? `${displayWeight} ${unitWeight}` : '—'}
         </p>
       ) : (
@@ -263,13 +263,13 @@ function SetRow({
           onBlur={commitWeight}
           onKeyDown={e => e.key === 'Enter' && commitWeight()}
           placeholder={unitWeight}
-          className="flex-1 h-9 bg-zinc-800 border border-zinc-700 focus:border-brand rounded-lg text-sm text-center text-zinc-100 placeholder-zinc-600 focus:outline-none transition-colors"
+          className="flex-1 min-w-0 h-9 bg-zinc-800 border border-zinc-700 focus:border-brand rounded-lg text-sm text-center text-zinc-100 placeholder-zinc-600 focus:outline-none transition-colors"
         />
       )}
 
-      {/* Reps column — equal flex */}
+      {/* Reps column — equal flex, min-w-0 so it can shrink */}
       {set.completed ? (
-        <p className="flex-1 text-center text-sm text-zinc-400">
+        <p className="flex-1 min-w-0 text-center text-sm text-zinc-400 truncate">
           {set.reps != null ? `${set.reps} reps` : '—'}
         </p>
       ) : (
@@ -283,7 +283,7 @@ function SetRow({
           onBlur={commitReps}
           onKeyDown={e => e.key === 'Enter' && commitReps()}
           placeholder="reps"
-          className="flex-1 h-9 bg-zinc-800 border border-zinc-700 focus:border-brand rounded-lg text-sm text-center text-zinc-100 placeholder-zinc-600 focus:outline-none transition-colors"
+          className="flex-1 min-w-0 h-9 bg-zinc-800 border border-zinc-700 focus:border-brand rounded-lg text-sm text-center text-zinc-100 placeholder-zinc-600 focus:outline-none transition-colors"
         />
       )}
 
