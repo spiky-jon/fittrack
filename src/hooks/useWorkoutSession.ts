@@ -25,11 +25,13 @@ export interface UseWorkoutSessionReturn {
   error: string | null
   addExercise: (exercise: Exercise) => Promise<void>
   addSet: (exerciseId: string, exerciseName: string) => Promise<void>
+  addWarmupSet: (exerciseId: string, exerciseName: string) => Promise<void>
   updateSet: (
     setId: string,
     updates: { reps?: number | null; weight_kg?: number | null; completed?: boolean },
   ) => Promise<void>
   removeSet: (setId: string) => Promise<void>
+  removeExercise: (exerciseId: string) => Promise<void>
   finishWorkout: () => Promise<void>
 }
 
@@ -117,20 +119,48 @@ export function useWorkoutSession(sessionId: string): UseWorkoutSessionReturn {
     const group = exercisesRef.current.find(g => g.exercise_id === exerciseId)
     if (!group) return
 
-    const lastSet = group.sets[group.sets.length - 1]
-    const setNumber = (lastSet?.set_number ?? 0) + 1
+    const regularSets = group.sets.filter(s => s.set_number > 0)
+    const maxSetNum = regularSets.length > 0 ? Math.max(...regularSets.map(s => s.set_number)) : 0
+    const lastRegular = [...regularSets].sort((a, b) => b.set_number - a.set_number)[0] ?? null
 
     const newSet = await dbAddSet(
       session.id,
       exerciseId,
       exerciseName,
-      setNumber,
-      lastSet?.reps ?? null,
-      lastSet?.weight_kg ?? null,
+      maxSetNum + 1,
+      lastRegular?.reps ?? null,
+      lastRegular?.weight_kg ?? null,
       group.order_index,
     )
     setExercises(gs =>
-      gs.map(g => g.exercise_id === exerciseId ? { ...g, sets: [...g.sets, newSet] } : g),
+      gs.map(g =>
+        g.exercise_id === exerciseId
+          ? { ...g, sets: [...g.sets, newSet].sort((a, b) => a.set_number - b.set_number) }
+          : g,
+      ),
+    )
+  }, [session])
+
+  const addWarmupSet = useCallback(async (exerciseId: string, exerciseName: string) => {
+    if (!session) return
+    const group = exercisesRef.current.find(g => g.exercise_id === exerciseId)
+    if (!group) return
+
+    const newSet = await dbAddSet(
+      session.id,
+      exerciseId,
+      exerciseName,
+      0,
+      null,
+      null,
+      group.order_index,
+    )
+    setExercises(gs =>
+      gs.map(g =>
+        g.exercise_id === exerciseId
+          ? { ...g, sets: [...g.sets, newSet].sort((a, b) => a.set_number - b.set_number) }
+          : g,
+      ),
     )
   }, [session])
 
@@ -152,17 +182,26 @@ export function useWorkoutSession(sessionId: string): UseWorkoutSessionReturn {
     setExercises(gs =>
       gs
         .map(g => ({ ...g, sets: g.sets.filter(s => s.id !== setId) }))
-        .filter(g => g.sets.length > 0), // drop exercise block when last set removed
+        .filter(g => g.sets.length > 0),
     )
     await dbDeleteSet(setId)
   }, [])
 
+  const removeExercise = useCallback(async (exerciseId: string) => {
+    const group = exercisesRef.current.find(g => g.exercise_id === exerciseId)
+    if (!group) return
+    setExercises(gs => gs.filter(g => g.exercise_id !== exerciseId))
+    await Promise.all(group.sets.map(s => dbDeleteSet(s.id)))
+  }, [])
+
   const finishWorkout = useCallback(async () => {
     if (!session) return
-    await completeSession(session.id, new Date().toISOString())
+    const endedAt = new Date().toISOString()
+    await completeSession(session.id, endedAt)
+    setSession(s => s ? { ...s, ended_at: endedAt } : s)
   }, [session])
 
-  return { session, exercises, loading, error, addExercise, addSet, updateSet, removeSet, finishWorkout }
+  return { session, exercises, loading, error, addExercise, addSet, addWarmupSet, updateSet, removeSet, removeExercise, finishWorkout }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

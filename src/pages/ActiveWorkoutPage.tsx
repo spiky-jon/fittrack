@@ -1,28 +1,33 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Plus, Check, X, Loader2, Dumbbell, ChevronLeft } from 'lucide-react'
+import {
+  Check, X, Loader2, Dumbbell, Plus, MoreVertical,
+  Play, Pause, RotateCcw, HelpCircle,
+} from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { useWorkoutSession, type ExerciseGroup } from '@/hooks/useWorkoutSession'
 import ExerciseBrowser from '@/components/workout/ExerciseBrowser'
 import { kgToLbs, parseWeightToKg } from '@/lib/units'
+import { getExercise, type Exercise } from '@/services/exerciseDb'
 import type { ExerciseSet, UnitWeight, WorkoutSession } from '@/types'
+
+const DEFAULT_REST_SECS = 120
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Elapsed timer
 // ─────────────────────────────────────────────────────────────────────────────
 
-function WorkoutTimer({ startedAt }: { startedAt: string | null }) {
-  const startMs = useRef(startedAt ? new Date(startedAt).getTime() : Date.now())
+function WorkoutTimer({ startedAt, paused }: { startedAt: string | null; paused: boolean }) {
   const [elapsed, setElapsed] = useState(() =>
-    Math.floor((Date.now() - startMs.current) / 1000),
+    Math.floor((Date.now() - (startedAt ? new Date(startedAt).getTime() : Date.now())) / 1000),
   )
+
   useEffect(() => {
-    const t = setInterval(
-      () => setElapsed(Math.floor((Date.now() - startMs.current) / 1000)),
-      1000,
-    )
+    if (paused) return
+    const t = setInterval(() => setElapsed(e => e + 1), 1000)
     return () => clearInterval(t)
-  }, [])
+  }, [paused])
+
   const m = Math.floor(elapsed / 60)
   const s = elapsed % 60
   return (
@@ -33,42 +38,127 @@ function WorkoutTimer({ startedAt }: { startedAt: string | null }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Rest timer banner
+// Rest timer bar (fixed bottom, always visible)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function RestTimerBanner({ onDismiss }: { onDismiss: () => void }) {
-  const REST_SECS = 60
-  const [seconds, setSeconds] = useState(REST_SECS)
+function RestTimerBar({
+  defaultSecs,
+  triggerKey,
+}: {
+  defaultSecs: number
+  triggerKey: number
+}) {
+  const [secs, setSecs] = useState(defaultSecs)
+  const [running, setRunning] = useState(false)
+
+  // Auto-reset and start when a set completes
+  useEffect(() => {
+    if (triggerKey === 0) return
+    setSecs(defaultSecs)
+    setRunning(true)
+  }, [triggerKey, defaultSecs])
 
   useEffect(() => {
-    if (seconds <= 0) { onDismiss(); return }
-    const t = setTimeout(() => setSeconds(s => s - 1), 1000)
+    if (!running) return
+    if (secs <= 0) { setRunning(false); return }
+    const t = setTimeout(() => setSecs(s => s - 1), 1000)
     return () => clearTimeout(t)
-  }, [seconds, onDismiss])
+  }, [running, secs])
 
-  const pct = (seconds / REST_SECS) * 100
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
+  const m = Math.floor(secs / 60)
+  const s = secs % 60
+  const done = secs <= 0
 
   return (
-    <div className="flex items-center gap-3 px-4 py-2.5 bg-zinc-900 border-t border-zinc-700">
-      <span className="text-xs font-medium text-zinc-400 shrink-0">Rest</span>
-      <div className="flex-1 h-1.5 bg-zinc-700 rounded-full overflow-hidden">
-        <div
-          className="h-full bg-brand rounded-full transition-[width] duration-1000 ease-linear"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      <span className="font-mono text-sm font-semibold text-brand tabular-nums shrink-0">
+    <div className="shrink-0 flex items-center gap-3 px-4 py-3 bg-zinc-900 border-t border-zinc-800 safe-bottom">
+      <span className="text-xs font-medium text-zinc-500 shrink-0">Rest</span>
+      <span
+        className={`font-mono text-xl font-bold tabular-nums w-14 ${
+          done ? 'text-brand' : running ? 'text-zinc-100' : 'text-zinc-600'
+        }`}
+      >
         {m}:{String(s).padStart(2, '0')}
       </span>
+      <div className="flex-1" />
       <button
-        onClick={onDismiss}
-        className="shrink-0 text-zinc-600 hover:text-zinc-300 transition-colors"
-        aria-label="Dismiss rest timer"
+        onClick={() => { setSecs(defaultSecs); setRunning(false) }}
+        className="w-10 h-10 flex items-center justify-center text-zinc-500 hover:text-zinc-300 transition-colors"
+        aria-label="Reset rest timer"
       >
-        <X size={16} />
+        <RotateCcw size={17} />
       </button>
+      <button
+        onClick={() => setRunning(r => !r)}
+        className={`w-10 h-10 flex items-center justify-center rounded-full transition-colors ${
+          running
+            ? 'bg-brand text-zinc-900'
+            : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+        }`}
+        aria-label={running ? 'Pause rest timer' : 'Start rest timer'}
+      >
+        {running ? <Pause size={17} /> : <Play size={17} />}
+      </button>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Exercise instructions modal
+// ─────────────────────────────────────────────────────────────────────────────
+
+function InstructionsModal({ exercise, onClose }: { exercise: Exercise; onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end bg-black/60"
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div className="w-full max-w-[480px] mx-auto bg-zinc-900 rounded-t-2xl max-h-[80vh] flex flex-col">
+        <div className="flex items-center gap-3 px-4 py-4 border-b border-zinc-800 shrink-0">
+          <h3 className="font-semibold text-zinc-100 flex-1 capitalize">{exercise.name}</h3>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 flex items-center justify-center text-zinc-500 hover:text-zinc-300"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <div className="overflow-y-auto px-4 py-4 space-y-4">
+          <div>
+            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-1.5">
+              Primary muscles
+            </p>
+            <p className="text-sm text-zinc-300 capitalize">
+              {exercise.primaryMuscles.join(', ')}
+            </p>
+          </div>
+          {exercise.secondaryMuscles.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-1.5">
+                Secondary muscles
+              </p>
+              <p className="text-sm text-zinc-300 capitalize">
+                {exercise.secondaryMuscles.join(', ')}
+              </p>
+            </div>
+          )}
+          {exercise.instructions.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">
+                Instructions
+              </p>
+              <ol className="space-y-2.5">
+                {exercise.instructions.map((step, i) => (
+                  <li key={i} className="flex gap-2.5 text-sm text-zinc-300">
+                    <span className="text-brand shrink-0 font-semibold leading-snug">{i + 1}.</span>
+                    <span className="leading-snug">{step}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+          <div className="h-4" />
+        </div>
+      </div>
     </div>
   )
 }
@@ -81,18 +171,24 @@ type SetUpdates = { reps?: number | null; weight_kg?: number | null; completed?:
 
 function SetRow({
   set,
-  setNumber,
-  previous,
+  isWarmup,
+  displayNum,
   unitWeight,
   onUpdate,
   onComplete,
+  onRemove,
+  menuOpen,
+  onMenuToggle,
 }: {
   set: ExerciseSet
-  setNumber: number
-  previous: ExerciseGroup['previousSet']
+  isWarmup: boolean
+  displayNum: number
   unitWeight: UnitWeight
   onUpdate: (u: SetUpdates) => void
   onComplete: () => void
+  onRemove: () => void
+  menuOpen: boolean
+  onMenuToggle: () => void
 }) {
   const [weight, setWeight] = useState(() =>
     set.weight_kg != null
@@ -113,86 +209,104 @@ function SetRow({
     if (!isNaN(n) && n >= 0) onUpdate({ reps: n })
   }
 
-  function handleComplete() {
+  function handleToggle() {
     const updates: SetUpdates = { completed: !set.completed }
-    const w = parseFloat(weight)
-    const r = parseInt(reps, 10)
-    if (!isNaN(w) && w >= 0) updates.weight_kg = parseWeightToKg(w, unitWeight)
-    if (!isNaN(r) && r >= 0) updates.reps = r
+    if (!set.completed) {
+      const w = parseFloat(weight)
+      const r = parseInt(reps, 10)
+      if (!isNaN(w) && w >= 0) updates.weight_kg = parseWeightToKg(w, unitWeight)
+      if (!isNaN(r) && r >= 0) updates.reps = r
+    }
     onUpdate(updates)
     if (!set.completed) onComplete()
   }
 
-  // Previous column: "60 × 8" or "—"
-  const prevWeight =
-    previous?.weight_kg != null
-      ? unitWeight === 'lbs'
-        ? kgToLbs(previous.weight_kg)
-        : previous.weight_kg
+  const displayWeight =
+    set.weight_kg != null
+      ? unitWeight === 'lbs' ? kgToLbs(set.weight_kg) : set.weight_kg
       : null
-  const prevText =
-    previous
-      ? `${prevWeight ?? '—'} × ${previous.reps ?? '—'}`
-      : '—'
 
   return (
     <div
-      className={`flex items-center gap-2 px-3 py-1.5 transition-colors ${
-        set.completed ? 'bg-brand/5' : ''
+      className={`flex items-center gap-2 px-3 min-h-[44px] py-1 transition-colors ${
+        set.completed ? (isWarmup ? 'bg-zinc-800/20' : 'bg-brand/5') : ''
       }`}
     >
-      {/* Set number */}
-      <span className="w-7 text-center text-xs text-zinc-500 shrink-0 font-medium">
-        {setNumber}
-      </span>
-
-      {/* Previous */}
-      <span className="w-14 text-center text-xs text-zinc-600 shrink-0 truncate">
-        {prevText}
-      </span>
-
-      {/* Weight */}
-      <input
-        type="number"
-        inputMode="decimal"
-        min="0"
-        step="0.5"
-        value={weight}
-        onChange={e => setWeight(e.target.value)}
-        onBlur={commitWeight}
-        onKeyDown={e => e.key === 'Enter' && commitWeight()}
-        placeholder="—"
-        readOnly={set.completed}
-        className="flex-1 h-11 bg-zinc-800 border border-zinc-700 focus:border-brand rounded-lg text-base text-center text-zinc-100 placeholder-zinc-600 focus:outline-none transition-colors read-only:opacity-50"
-      />
-
-      {/* Reps */}
-      <input
-        type="number"
-        inputMode="numeric"
-        min="0"
-        step="1"
-        value={reps}
-        onChange={e => setReps(e.target.value)}
-        onBlur={commitReps}
-        onKeyDown={e => e.key === 'Enter' && commitReps()}
-        placeholder="—"
-        readOnly={set.completed}
-        className="w-16 h-11 bg-zinc-800 border border-zinc-700 focus:border-brand rounded-lg text-base text-center text-zinc-100 placeholder-zinc-600 focus:outline-none transition-colors read-only:opacity-50"
-      />
-
-      {/* Done toggle */}
+      {/* Circle: the completion toggle */}
       <button
-        onClick={handleComplete}
-        aria-label={set.completed ? 'Mark incomplete' : 'Mark complete'}
-        className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 border transition-colors ${
+        onClick={handleToggle}
+        className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-colors ${
           set.completed
-            ? 'bg-brand border-brand text-zinc-900'
-            : 'bg-zinc-800 border-zinc-700 text-zinc-600 hover:border-brand hover:text-brand'
+            ? isWarmup
+              ? 'bg-zinc-600 border-zinc-600 text-white'
+              : 'bg-brand border-brand text-zinc-900'
+            : 'border-zinc-600 text-zinc-500 hover:border-zinc-400 hover:text-zinc-400'
         }`}
+        aria-label={set.completed ? 'Mark incomplete' : 'Mark complete'}
       >
-        <Check size={18} />
+        {isWarmup ? 'W' : displayNum}
       </button>
+
+      {/* Weight column — equal flex */}
+      {set.completed ? (
+        <p className="flex-1 text-center text-sm text-zinc-400">
+          {displayWeight != null ? `${displayWeight} ${unitWeight}` : '—'}
+        </p>
+      ) : (
+        <input
+          type="number"
+          inputMode="decimal"
+          min="0"
+          step="0.5"
+          value={weight}
+          onChange={e => setWeight(e.target.value)}
+          onBlur={commitWeight}
+          onKeyDown={e => e.key === 'Enter' && commitWeight()}
+          placeholder={unitWeight}
+          className="flex-1 h-9 bg-zinc-800 border border-zinc-700 focus:border-brand rounded-lg text-sm text-center text-zinc-100 placeholder-zinc-600 focus:outline-none transition-colors"
+        />
+      )}
+
+      {/* Reps column — equal flex */}
+      {set.completed ? (
+        <p className="flex-1 text-center text-sm text-zinc-400">
+          {set.reps != null ? `${set.reps} reps` : '—'}
+        </p>
+      ) : (
+        <input
+          type="number"
+          inputMode="numeric"
+          min="0"
+          step="1"
+          value={reps}
+          onChange={e => setReps(e.target.value)}
+          onBlur={commitReps}
+          onKeyDown={e => e.key === 'Enter' && commitReps()}
+          placeholder="reps"
+          className="flex-1 h-9 bg-zinc-800 border border-zinc-700 focus:border-brand rounded-lg text-sm text-center text-zinc-100 placeholder-zinc-600 focus:outline-none transition-colors"
+        />
+      )}
+
+      {/* Three-dot menu */}
+      <div className="relative shrink-0">
+        <button
+          onClick={onMenuToggle}
+          className="w-8 h-8 flex items-center justify-center text-zinc-700 hover:text-zinc-400 transition-colors"
+          aria-label="Set options"
+        >
+          <MoreVertical size={14} />
+        </button>
+        {menuOpen && (
+          <div className="absolute right-0 top-full z-20 bg-zinc-800 border border-zinc-700 rounded-xl shadow-xl py-1 w-28">
+            <button
+              onClick={() => { onRemove(); onMenuToggle() }}
+              className="w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-zinc-700/60 transition-colors"
+            >
+              Delete set
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -205,73 +319,125 @@ function ExerciseBlock({
   group,
   unitWeight,
   onAddSet,
+  onAddWarmup,
   onUpdateSet,
+  onRemoveSet,
+  onRemoveExercise,
   onSetCompleted,
+  onShowInstructions,
 }: {
   group: ExerciseGroup
   unitWeight: UnitWeight
   onAddSet: () => void
+  onAddWarmup: () => void
   onUpdateSet: (setId: string, updates: SetUpdates) => void
-  onSetCompleted: () => void
+  onRemoveSet: (setId: string) => void
+  onRemoveExercise: () => void
+  onSetCompleted: (isWarmup: boolean) => void
+  onShowInstructions: () => void
 }) {
-  const allDone = group.sets.length > 0 && group.sets.every(s => s.completed)
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false)
+  const [activeSetMenu, setActiveSetMenu] = useState<string | null>(null)
+
+  const warmupSets = group.sets.filter(s => s.set_number === 0)
+  const regularSets = group.sets.filter(s => s.set_number > 0)
 
   return (
     <div className="mb-3 bg-zinc-900 rounded-2xl overflow-hidden">
-      {/* Exercise header */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-800/60">
-        <div
-          className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
-            allDone ? 'bg-brand border-brand' : 'border-zinc-600'
-          }`}
+      {/* Header */}
+      <div className="flex items-center gap-1 px-4 py-3 border-b border-zinc-800/60">
+        <p className="flex-1 text-sm font-bold text-zinc-100 leading-tight">
+          {group.exercise_name}
+        </p>
+        <button
+          onClick={onShowInstructions}
+          className="w-8 h-8 flex items-center justify-center text-zinc-600 hover:text-zinc-400 transition-colors shrink-0"
+          aria-label="Exercise instructions"
         >
-          {allDone && <Check size={11} className="text-zinc-900" />}
+          <HelpCircle size={16} />
+        </button>
+        <div className="relative shrink-0">
+          <button
+            onClick={() => { setHeaderMenuOpen(o => !o); setActiveSetMenu(null) }}
+            className="w-8 h-8 flex items-center justify-center text-zinc-600 hover:text-zinc-400 transition-colors"
+            aria-label="Exercise options"
+          >
+            <MoreVertical size={16} />
+          </button>
+          {headerMenuOpen && (
+            <div className="absolute right-0 top-full z-20 bg-zinc-800 border border-zinc-700 rounded-xl shadow-xl py-1 w-36">
+              <button
+                onClick={() => { onRemoveExercise(); setHeaderMenuOpen(false) }}
+                className="w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-zinc-700/60 transition-colors"
+              >
+                Remove exercise
+              </button>
+            </div>
+          )}
         </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-zinc-100 leading-tight">{group.exercise_name}</p>
-        </div>
-        <span className="text-xs text-zinc-600">
-          {group.sets.filter(s => s.completed).length}/{group.sets.length}
-        </span>
       </div>
 
-      {/* Column labels */}
-      <div className="flex items-center gap-2 px-3 py-1 border-b border-zinc-800/40">
-        <span className="w-7 shrink-0" />
-        <span className="w-14 text-center text-xs text-zinc-600 shrink-0">Prev</span>
-        <span className="flex-1 text-center text-xs text-zinc-600">
-          {unitWeight === 'lbs' ? 'lbs' : 'kg'}
-        </span>
-        <span className="w-16 text-center text-xs text-zinc-600">Reps</span>
-        <span className="w-11 shrink-0" />
-      </div>
+      {/* Warm-up row — always at the top of the body */}
+      <button
+        onClick={onAddWarmup}
+        className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-400/70 hover:text-red-400 transition-colors border-b border-zinc-800/40"
+      >
+        <Plus size={14} strokeWidth={2.5} />
+        Warm-up
+      </button>
 
-      {/* Set rows — key by ID so each new set mounts fresh */}
-      {group.sets.map((set, i) => (
+      {/* Warmup set rows */}
+      {warmupSets.map(set => (
         <SetRow
           key={set.id}
           set={set}
-          setNumber={i + 1}
-          previous={group.previousSet}
+          isWarmup
+          displayNum={0}
           unitWeight={unitWeight}
           onUpdate={updates => onUpdateSet(set.id, updates)}
-          onComplete={() => onSetCompleted()}
+          onComplete={() => onSetCompleted(true)}
+          onRemove={() => onRemoveSet(set.id)}
+          menuOpen={activeSetMenu === set.id}
+          onMenuToggle={() => {
+            setActiveSetMenu(activeSetMenu === set.id ? null : set.id)
+            setHeaderMenuOpen(false)
+          }}
+        />
+      ))}
+
+      {/* Working set rows */}
+      {regularSets.map((set, i) => (
+        <SetRow
+          key={set.id}
+          set={set}
+          isWarmup={false}
+          displayNum={i + 1}
+          unitWeight={unitWeight}
+          onUpdate={updates => onUpdateSet(set.id, updates)}
+          onComplete={() => onSetCompleted(false)}
+          onRemove={() => onRemoveSet(set.id)}
+          menuOpen={activeSetMenu === set.id}
+          onMenuToggle={() => {
+            setActiveSetMenu(activeSetMenu === set.id ? null : set.id)
+            setHeaderMenuOpen(false)
+          }}
         />
       ))}
 
       {/* Add set */}
       <button
         onClick={onAddSet}
-        className="w-full py-2.5 text-xs text-zinc-600 hover:text-brand flex items-center justify-center gap-1.5 transition-colors border-t border-zinc-800/40"
+        className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-400/70 hover:text-red-400 transition-colors border-t border-zinc-800/40"
       >
-        <Plus size={13} /> Add set
+        <Plus size={14} strokeWidth={2.5} />
+        Set
       </button>
     </div>
   )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Summary screen (shown after finishing)
+// Summary screen
 // ─────────────────────────────────────────────────────────────────────────────
 
 function bestSet(sets: ExerciseSet[]): ExerciseSet | null {
@@ -281,6 +447,7 @@ function bestSet(sets: ExerciseSet[]): ExerciseSet | null {
   if (withWeight.length) {
     return withWeight.reduce((b, s) => (s.weight_kg ?? 0) > (b.weight_kg ?? 0) ? s : b)
   }
+  if (!pool.length) return null
   return pool.reduce((b, s) => (s.reps ?? 0) > (b.reps ?? 0) ? s : b, pool[0])
 }
 
@@ -304,7 +471,10 @@ function SummaryScreen({
   const durationStr =
     mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m ${totalSecs % 60}s`
 
-  const totalDone = exercises.reduce((n, g) => n + g.sets.filter(s => s.completed).length, 0)
+  const totalDone = exercises.reduce(
+    (n, g) => n + g.sets.filter(s => s.completed && s.set_number > 0).length,
+    0,
+  )
 
   return (
     <div className="flex flex-col h-screen bg-zinc-950 max-w-[480px] mx-auto">
@@ -319,7 +489,6 @@ function SummaryScreen({
       </header>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-        {/* Stats */}
         <div className="grid grid-cols-3 gap-3">
           {[
             { label: 'Duration', value: durationStr },
@@ -333,23 +502,21 @@ function SummaryScreen({
           ))}
         </div>
 
-        {/* Per-exercise breakdown */}
         {exercises.length > 0 && (
           <div className="space-y-2">
-            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
-              Best sets
-            </p>
+            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Best sets</p>
             {exercises.map(group => {
               const best = bestSet(group.sets)
               const w =
                 best?.weight_kg != null
-                  ? unitWeight === 'lbs'
-                    ? kgToLbs(best.weight_kg)
-                    : best.weight_kg
+                  ? unitWeight === 'lbs' ? kgToLbs(best.weight_kg) : best.weight_kg
                   : null
               const bestLabel =
                 best
-                  ? [w != null ? `${w} ${unitWeight}` : null, best.reps != null ? `${best.reps} reps` : null]
+                  ? [
+                      w != null ? `${w} ${unitWeight}` : null,
+                      best.reps != null ? `${best.reps} reps` : null,
+                    ]
                       .filter(Boolean)
                       .join(' × ') || '—'
                   : '—'
@@ -359,9 +526,12 @@ function SummaryScreen({
                   className="bg-zinc-900 rounded-xl px-4 py-3 flex items-center justify-between gap-3"
                 >
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-zinc-100 truncate">{group.exercise_name}</p>
+                    <p className="text-sm font-medium text-zinc-100 truncate">
+                      {group.exercise_name}
+                    </p>
                     <p className="text-xs text-zinc-500 mt-0.5">
-                      {group.sets.filter(s => s.completed).length}/{group.sets.length} sets
+                      {group.sets.filter(s => s.completed && s.set_number > 0).length}/
+                      {group.sets.filter(s => s.set_number > 0).length} sets
                     </p>
                   </div>
                   <p className="text-sm text-zinc-400 shrink-0">{bestLabel}</p>
@@ -396,15 +566,21 @@ export default function ActiveWorkoutPage() {
 
   const {
     session, exercises, loading, error,
-    addExercise, addSet, updateSet, finishWorkout,
+    addExercise, addSet, addWarmupSet, updateSet, removeSet, removeExercise, finishWorkout,
   } = useWorkoutSession(sessionId!)
 
   const [showExerciseBrowser, setShowExerciseBrowser] = useState(false)
-  const [showRestTimer, setShowRestTimer] = useState(false)
   const [finishing, setFinishing] = useState(false)
   const [showSummary, setShowSummary] = useState(false)
+  const [workoutPaused, setWorkoutPaused] = useState(false)
+  const [restTriggerKey, setRestTriggerKey] = useState(0)
+  const [instructionsExercise, setInstructionsExercise] = useState<Exercise | null>(null)
 
-  // ── Finish ──────────────────────────────────────────────────────────────────
+  async function handleShowInstructions(exerciseId: string) {
+    const ex = await getExercise(exerciseId)
+    if (ex) setInstructionsExercise(ex)
+  }
+
   async function handleFinish() {
     if (!confirm('Finish this workout?')) return
     setFinishing(true)
@@ -453,26 +629,38 @@ export default function ActiveWorkoutPage() {
     <div className="flex flex-col h-screen bg-zinc-950 max-w-[480px] mx-auto">
 
       {/* ── Top bar ─────────────────────────────────────────────────────────── */}
-      <header className="shrink-0 flex items-center gap-3 px-4 py-3 bg-zinc-900 border-b border-zinc-800">
+      <header className="shrink-0 flex items-center gap-2 px-3 py-3 bg-zinc-900 border-b border-zinc-800">
         <button
           onClick={() => navigate('/workouts')}
-          className="text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
+          className="w-10 h-10 flex items-center justify-center text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
           aria-label="Back"
         >
-          <ChevronLeft size={20} />
+          <X size={20} />
         </button>
-        <div className="flex-1 min-w-0">
+
+        <div className="flex-1 min-w-0 px-1">
           <p className="text-sm font-bold text-zinc-100 truncate leading-tight">
             {session.name ?? 'Quick Workout'}
           </p>
-          <WorkoutTimer startedAt={session.started_at} />
+          <WorkoutTimer startedAt={session.started_at} paused={workoutPaused} />
         </div>
+
+        <button
+          onClick={() => setWorkoutPaused(p => !p)}
+          className="w-10 h-10 flex items-center justify-center text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
+          aria-label={workoutPaused ? 'Resume workout' : 'Pause workout'}
+        >
+          {workoutPaused ? <Play size={18} /> : <Pause size={18} />}
+        </button>
+
         <button
           onClick={handleFinish}
           disabled={finishing}
-          className="shrink-0 flex items-center gap-1.5 bg-brand hover:bg-brand-dark disabled:opacity-60 text-zinc-900 font-semibold rounded-lg px-3 py-2 text-sm transition-colors"
+          className="shrink-0 flex items-center gap-1.5 bg-brand hover:bg-brand-dark disabled:opacity-60 text-zinc-900 font-bold rounded-xl px-3 py-2 text-sm transition-colors"
         >
-          {finishing ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+          {finishing
+            ? <Loader2 size={14} className="animate-spin" />
+            : <Check size={14} strokeWidth={3} />}
           Finish
         </button>
       </header>
@@ -495,12 +683,15 @@ export default function ActiveWorkoutPage() {
             group={group}
             unitWeight={unitWeight}
             onAddSet={() => addSet(group.exercise_id, group.exercise_name)}
+            onAddWarmup={() => addWarmupSet(group.exercise_id, group.exercise_name)}
             onUpdateSet={(id, updates) => updateSet(id, updates)}
-            onSetCompleted={() => setShowRestTimer(true)}
+            onRemoveSet={id => removeSet(id)}
+            onRemoveExercise={() => removeExercise(group.exercise_id)}
+            onSetCompleted={isWarmup => { if (!isWarmup) setRestTriggerKey(k => k + 1) }}
+            onShowInstructions={() => handleShowInstructions(group.exercise_id)}
           />
         ))}
 
-        {/* Add exercise — inline at the bottom of the scroll area */}
         <button
           onClick={() => setShowExerciseBrowser(true)}
           className="w-full flex items-center justify-center gap-2 border border-dashed border-zinc-700 hover:border-brand hover:text-brand text-zinc-500 rounded-2xl py-3.5 text-sm font-medium transition-colors mt-1"
@@ -509,10 +700,8 @@ export default function ActiveWorkoutPage() {
         </button>
       </main>
 
-      {/* ── Fixed bottom: rest timer ─────────────────────────────────────────── */}
-      {showRestTimer && (
-        <RestTimerBanner onDismiss={() => setShowRestTimer(false)} />
-      )}
+      {/* ── Rest timer (always visible) ──────────────────────────────────────── */}
+      <RestTimerBar defaultSecs={DEFAULT_REST_SECS} triggerKey={restTriggerKey} />
 
       {/* ── Exercise browser overlay ─────────────────────────────────────────── */}
       {showExerciseBrowser && (
@@ -536,6 +725,14 @@ export default function ActiveWorkoutPage() {
             showFavouritesTab
           />
         </div>
+      )}
+
+      {/* ── Instructions modal ───────────────────────────────────────────────── */}
+      {instructionsExercise && (
+        <InstructionsModal
+          exercise={instructionsExercise}
+          onClose={() => setInstructionsExercise(null)}
+        />
       )}
     </div>
   )
