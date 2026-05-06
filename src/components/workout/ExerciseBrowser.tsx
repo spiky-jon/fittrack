@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Search, Loader2, ChevronLeft, Heart } from 'lucide-react'
+import { Search, Loader2, ChevronLeft, Heart, Info } from 'lucide-react'
 import {
   filterExercises, exerciseImageUrl, getExercise,
   MUSCLE_FILTERS, EQUIPMENT_FILTERS,
@@ -27,18 +27,21 @@ function Pill({ label, active, onClick }: { label: string; active: boolean; onCl
 function ExerciseCard({
   exercise,
   onSelect,
+  onInfo,
   onToggleFavourite,
   isFavourited,
   showHeart,
 }: {
   exercise: Exercise
   onSelect: () => void
+  onInfo: () => void
   onToggleFavourite?: () => void
   isFavourited?: boolean
   showHeart?: boolean
 }) {
   return (
     <div className="flex items-center bg-zinc-900 hover:bg-zinc-800 rounded-xl transition-colors">
+      {/* Main tap: add directly */}
       <button
         className="flex items-center gap-3 flex-1 min-w-0 p-3 text-left"
         onClick={onSelect}
@@ -58,6 +61,17 @@ function ExerciseCard({
           </p>
         </div>
       </button>
+
+      {/* Info: open detail view */}
+      <button
+        onClick={onInfo}
+        className="shrink-0 px-2.5 py-4 transition-colors"
+        aria-label="Exercise info"
+      >
+        <Info size={16} className="text-zinc-600 hover:text-zinc-400" />
+      </button>
+
+      {/* Favourite */}
       {showHeart && onToggleFavourite && (
         <button
           onClick={onToggleFavourite}
@@ -66,11 +80,7 @@ function ExerciseCard({
         >
           <Heart
             size={16}
-            className={
-              isFavourited
-                ? 'fill-brand text-brand'
-                : 'text-zinc-600 hover:text-zinc-400'
-            }
+            className={isFavourited ? 'fill-brand text-brand' : 'text-zinc-600 hover:text-zinc-400'}
           />
         </button>
       )}
@@ -263,7 +273,7 @@ export default function ExerciseBrowser({
       <ExerciseDetail
         exercise={detail}
         actionLabel={actionLabel}
-        onAction={() => { onSelect(detail); setDetail(null) }}
+        onAction={() => { setDetail(null); onSelect(detail) }}
         onBack={() => setDetail(null)}
         isFavourited={favouriteIds.has(detail.id)}
         onToggleFavourite={() => toggleFavourite(detail)}
@@ -293,7 +303,8 @@ export default function ExerciseBrowser({
             <ExerciseCard
               key={ex.id}
               exercise={ex}
-              onSelect={() => setDetail(ex)}
+              onSelect={() => onSelect(ex)}
+              onInfo={() => setDetail(ex)}
               onToggleFavourite={() => toggleFavourite(ex)}
               isFavourited={favouriteIds.has(ex.id)}
               showHeart={!!userId}
@@ -382,7 +393,8 @@ export default function ExerciseBrowser({
                     <ExerciseCard
                       key={ex.id}
                       exercise={ex}
-                      onSelect={() => setDetail(ex)}
+                      onSelect={() => onSelect(ex)}
+              onInfo={() => setDetail(ex)}
                       onToggleFavourite={() => toggleFavourite(ex)}
                       isFavourited={favouriteIds.has(ex.id)}
                       showHeart={!!userId}
@@ -471,7 +483,8 @@ export default function ExerciseBrowser({
                 <ExerciseCard
                   key={ex.id}
                   exercise={ex}
-                  onSelect={() => setDetail(ex)}
+                  onSelect={() => onSelect(ex)}
+              onInfo={() => setDetail(ex)}
                   onToggleFavourite={() => toggleFavourite(ex)}
                   isFavourited={favouriteIds.has(ex.id)}
                   showHeart={!!userId}
