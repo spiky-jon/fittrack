@@ -167,6 +167,42 @@ export async function deleteSet(id: string): Promise<void> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Returns all completed sets for a given exercise from the user's most recent
+ * finished session that contained it. Used to pre-fill a new session with the
+ * same reps/weight the user lifted last time.
+ */
+export async function getPreviousSessionSets(
+  userId: string,
+  exerciseId: string,
+): Promise<ExerciseSet[]> {
+  const { data: sessions } = await supabase
+    .from('workout_sessions')
+    .select('id')
+    .eq('user_id', userId)
+    .not('ended_at', 'is', null)
+    .order('started_at', { ascending: false })
+    .limit(30)
+
+  if (!sessions?.length) return []
+
+  const { data: sets } = await supabase
+    .from('exercise_sets')
+    .select('*')
+    .in('session_id', sessions.map((s: { id: string }) => s.id))
+    .eq('exercise_id', exerciseId)
+    .eq('completed', true)
+    .order('created_at', { ascending: false })
+
+  if (!sets?.length) return []
+
+  // All sets from the single most-recent session that had this exercise
+  const mostRecentSessionId = (sets[0] as ExerciseSet).session_id
+  return (sets as ExerciseSet[])
+    .filter(s => s.session_id === mostRecentSessionId && s.set_number > 0)
+    .sort((a, b) => a.set_number - b.set_number)
+}
+
+/**
  * Returns the most recent completed set for a given exercise, across all of
  * the user's finished sessions. Used to show "previous" reference in the logger.
  */

@@ -19,7 +19,13 @@ export default function AppLayout() {
   const { sessionId, isMinimised } = useActiveWorkoutStore()
 
   const displayName = profile?.name || user?.email?.split('@')[0] || 'You'
-  const initials = displayName.slice(0, 2).toUpperCase()
+  const initials = displayName
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(w => w[0])
+    .join('')
+    .toUpperCase()
 
   return (
     <div className="flex flex-col h-full max-w-[480px] mx-auto bg-zinc-950 relative overflow-hidden">

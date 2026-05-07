@@ -4,7 +4,7 @@ import type { Exercise } from '@/services/exerciseDb'
 import {
   getSession, getSessionSets, completeSession,
   addSet as dbAddSet, updateSet as dbUpdateSet, deleteSet as dbDeleteSet,
-  getLastCompletedSet,
+  getLastCompletedSet, getPreviousSessionSets,
 } from '@/services/workoutSessions'
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -92,24 +92,30 @@ export function useWorkoutSession(sessionId: string): UseWorkoutSessionReturn {
   const addExercise = useCallback(async (exercise: Exercise) => {
     if (!session) return
     const orderIndex = exercisesRef.current.length
-    const newSet = await dbAddSet(
-      session.id,
-      exercise.id,
-      exercise.name,
-      1,
-      null,
-      null,
-      orderIndex,
-    )
-    const prevSet = await getLastCompletedSet(session.user_id, exercise.id).catch(() => null)
+
+    const prevSets = await getPreviousSessionSets(session.user_id, exercise.id).catch(() => [])
+
+    let newSets: ExerciseSet[]
+    if (prevSets.length > 0) {
+      newSets = await Promise.all(
+        prevSets.map((p, i) =>
+          dbAddSet(session.id, exercise.id, exercise.name, i + 1, p.reps, p.weight_kg, orderIndex),
+        ),
+      )
+    } else {
+      newSets = [await dbAddSet(session.id, exercise.id, exercise.name, 1, null, null, orderIndex)]
+    }
+
     setExercises(gs => [
       ...gs,
       {
         exercise_id: exercise.id,
         exercise_name: exercise.name,
         order_index: orderIndex,
-        sets: [newSet],
-        previousSet: prevSet ? { reps: prevSet.reps, weight_kg: prevSet.weight_kg } : null,
+        sets: newSets,
+        previousSet: prevSets.length > 0
+          ? { reps: prevSets[0].reps, weight_kg: prevSets[0].weight_kg }
+          : null,
       },
     ])
   }, [session])
